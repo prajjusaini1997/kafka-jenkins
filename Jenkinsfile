@@ -87,9 +87,11 @@ pipeline {
         stage('Ansible Ping') {
             steps {
                 dir('kafka-role') {
+                    sshagent(credentials: ['ec2-ssh-key']) {
                     sh '''
                     ansible all -m ping
                     '''
+                    }
                 }
             }
         }
