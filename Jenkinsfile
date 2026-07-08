@@ -8,7 +8,7 @@ pipeline {
     }
 
     environment {
-        AWS_REGION      = 'ap-south-1'
+        AWS_REGION      = 'us-east-1'
 
         TERRAFORM_REPO  = 'https://github.com/prajjusaini1997/kafka-terraform.git'
         ANSIBLE_REPO    = 'https://github.com/prajjusaini1997/kafka-role.git'
