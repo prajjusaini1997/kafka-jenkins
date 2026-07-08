@@ -23,14 +23,11 @@ pipeline {
 
     environment {
         AWS_REGION     = 'us-east-1'
-
         TERRAFORM_REPO = 'https://github.com/prajjusaini1997/kafka-terraform.git'
         ANSIBLE_REPO   = 'https://github.com/prajjusaini1997/kafka-role.git'
         BRANCH         = 'main'
-
         TF_DIR         = 'terraform'
         ANSIBLE_DIR    = 'ansible'
-
         SSH_KEY        = '/var/lib/jenkins/.ssh/ninja_key.pem'
     }
 
@@ -91,10 +88,10 @@ pipeline {
 
         stage('6. Approval') {
             when {
-                expression { return params.ACTION == 'DEPLOY' || params.AUTO_APPROVE == false }
+                expression { return params.AUTO_APPROVE == false }
             }
             steps {
-                input message: 'Approve Terraform operation?', ok: 'Continue'
+                input message: "Approve Terraform ${params.ACTION}?", ok: 'Continue'
             }
         }
 
@@ -106,7 +103,7 @@ pipeline {
                             if [ "$AUTO_APPROVE" = "true" ]; then
                                 terraform destroy -auto-approve
                             else
-                                terraform apply -destroy tfplan
+                                terraform destroy
                             fi
                         else
                             if [ "$AUTO_APPROVE" = "true" ]; then
@@ -291,16 +288,18 @@ EOF
 
     post {
         success {
-            echo '========================================='
-            echo "Terraform ${params.ACTION} completed successfully"
-            if (params.ACTION == 'DEPLOY') {
-                echo 'Dynamic Bastion Configured'
-                echo 'AWS Dynamic Inventory Loaded'
-                echo 'Kafka Cluster Successfully Deployed'
-            } else {
-                echo 'Infrastructure Destroyed Successfully'
+            script {
+                echo '========================================='
+                echo "Terraform ${params.ACTION} completed successfully"
+                if (params.ACTION == 'DEPLOY') {
+                    echo 'Dynamic Bastion Configured'
+                    echo 'AWS Dynamic Inventory Loaded'
+                    echo 'Kafka Cluster Successfully Deployed'
+                } else {
+                    echo 'Infrastructure Destroyed Successfully'
+                }
+                echo '========================================='
             }
-            echo '========================================='
         }
 
         failure {
