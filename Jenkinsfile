@@ -17,106 +17,121 @@ pipeline {
         booleanParam(
             name: 'AUTO_APPROVE',
             defaultValue: true,
-            description: 'Auto approve Terraform apply'
+            description: 'Auto approve Terraform apply/destroy'
         )
     }
 
     environment {
-        AWS_REGION      = 'us-east-1'
+        AWS_REGION     = 'us-east-1'
 
-        TERRAFORM_REPO  = 'https://github.com/prajjusaini1997/kafka-terraform.git'
-        ANSIBLE_REPO    = 'https://github.com/prajjusaini1997/kafka-role.git'
+        TERRAFORM_REPO = 'https://github.com/prajjusaini1997/kafka-terraform.git'
+        ANSIBLE_REPO   = 'https://github.com/prajjusaini1997/kafka-role.git'
+        BRANCH         = 'main'
 
-        BRANCH          = 'main'
+        TF_DIR         = 'terraform'
+        ANSIBLE_DIR    = 'ansible'
 
-        TF_DIR          = 'terraform'
-        ANSIBLE_DIR     = 'ansible'
-
-        SSH_KEY         = '/var/lib/jenkins/.ssh/ninja_key.pem'
+        SSH_KEY        = '/var/lib/jenkins/.ssh/ninja_key.pem'
     }
 
     stages {
 
-        stage('Clean Workspace') {
+        stage('1. Clean Workspace') {
             steps {
                 deleteDir()
             }
         }
 
-        stage('Clone Terraform Repo') {
+        stage('2. Clone Repos') {
             steps {
-                dir("${TF_DIR}") {
-                    git branch: "${BRANCH}",
-                        url: "${TERRAFORM_REPO}"
+                script {
+                    dir("${TF_DIR}") {
+                        git branch: "${BRANCH}", url: "${TERRAFORM_REPO}"
+                    }
+                    dir("${ANSIBLE_DIR}") {
+                        git branch: "${BRANCH}", url: "${ANSIBLE_REPO}"
+                    }
                 }
             }
         }
 
-        stage('Clone Ansible Repo') {
-            steps {
-                dir("${ANSIBLE_DIR}") {
-                    git branch: "${BRANCH}",
-                        url: "${ANSIBLE_REPO}"
-                }
-            }
-        }
-
-        stage('Terraform Init') {
+        stage('3. Terraform Init') {
             steps {
                 dir("${TF_DIR}") {
                     sh '''
-                    terraform init -upgrade
+                        terraform init -upgrade
                     '''
                 }
             }
         }
 
-        stage('Terraform Validate') {
+        stage('4. Terraform Validate') {
             steps {
                 dir("${TF_DIR}") {
                     sh '''
-                    terraform validate
+                        terraform validate
                     '''
                 }
             }
         }
 
-        stage('Terraform Plan') {
+        stage('5. Terraform Plan') {
             steps {
                 dir("${TF_DIR}") {
                     sh '''
-                    terraform plan -out=tfplan
+                        if [ "$ACTION" = "DESTROY" ]; then
+                            terraform plan -destroy -out=tfplan
+                        else
+                            terraform plan -out=tfplan
+                        fi
                     '''
                 }
             }
         }
 
-        stage('Approval') {
+        stage('6. Approval') {
+            when {
+                expression { return params.ACTION == 'DEPLOY' || params.AUTO_APPROVE == false }
+            }
             steps {
-                input message: 'Approve Terraform Apply?', ok: 'Apply'
+                input message: 'Approve Terraform operation?', ok: 'Continue'
             }
         }
 
-        stage('Terraform Apply') {
+        stage('7. Terraform Apply or Destroy') {
             steps {
                 dir("${TF_DIR}") {
                     sh '''
-                    terraform apply -auto-approve tfplan
+                        if [ "$ACTION" = "DESTROY" ]; then
+                            if [ "$AUTO_APPROVE" = "true" ]; then
+                                terraform destroy -auto-approve
+                            else
+                                terraform apply -destroy tfplan
+                            fi
+                        else
+                            if [ "$AUTO_APPROVE" = "true" ]; then
+                                terraform apply -auto-approve tfplan
+                            else
+                                terraform apply tfplan
+                            fi
+                        fi
                     '''
                 }
             }
         }
 
-        stage('Generate Bastion SSH Config') {
+        stage('8. Generate Bastion SSH Config') {
+            when {
+                expression { return params.ACTION == 'DEPLOY' }
+            }
             steps {
                 dir("${TF_DIR}") {
-
                     sh '''
-                    BASTION_IP=$(terraform output -raw bastion_ip)
+                        BASTION_IP=$(terraform output -raw bastion_ip)
 
-                    mkdir -p ~/.ssh
+                        mkdir -p ~/.ssh
 
-                    cat > ~/.ssh/config <<EOF
+                        cat > ~/.ssh/config <<EOF
 Host bastion
     HostName ${BASTION_IP}
     User ubuntu
@@ -132,21 +147,22 @@ Host 10.0.*
     UserKnownHostsFile /dev/null
 EOF
 
-                    chmod 600 ~/.ssh/config
+                        chmod 600 ~/.ssh/config
                     '''
                 }
             }
         }
 
-        stage('Configure Dynamic Inventory') {
+        stage('9. Configure Ansible') {
+            when {
+                expression { return params.ACTION == 'DEPLOY' }
+            }
             steps {
-
                 dir("${ANSIBLE_DIR}") {
-
                     sh '''
-                    mkdir -p inventories
+                        mkdir -p inventories
 
-                    cat > inventories/aws_ec2.yml <<EOF
+                        cat > inventories/aws_ec2.yml <<EOF
 plugin: amazon.aws.aws_ec2
 
 regions:
@@ -168,18 +184,8 @@ compose:
 
 strict: False
 EOF
-                    '''
-                }
-            }
-        }
 
-        stage('Configure ansible.cfg') {
-            steps {
-
-                dir("${ANSIBLE_DIR}") {
-
-                    sh '''
-                    cat > ansible.cfg <<EOF
+                        cat > ansible.cfg <<EOF
 [defaults]
 inventory=inventories/aws_ec2.yml
 host_key_checking=False
@@ -200,159 +206,113 @@ EOF
             }
         }
 
-        stage('Wait for EC2 SSH') {
+        stage('10. Kafka Deploy and Verify') {
+            when {
+                expression { return params.ACTION == 'DEPLOY' }
+            }
             steps {
-
                 dir("${ANSIBLE_DIR}") {
-
                     sh '''
-                    echo "Waiting for EC2 instances to become SSH ready..."
+                        echo "Waiting for EC2 instances to become SSH ready..."
+                        until ansible tag_kafka -m ping >/dev/null 2>&1
+                        do
+                            echo "SSH not ready yet... retrying in 10 seconds"
+                            sleep 10
+                        done
 
-                    until ansible tag_kafka -m ping >/dev/null 2>&1
-                    do
-                        echo "SSH not ready yet... retrying in 10 seconds"
-                        sleep 10
-                    done
+                        echo "========== INVENTORY FILE =========="
+                        cat inventories/aws_ec2.yml
 
-                    echo "All EC2 instances are SSH reachable."
+                        echo "========== ANSIBLE CFG =========="
+                        cat ansible.cfg
+
+                        echo "========== INVENTORY LIST =========="
+                        ansible-inventory --list
+
+                        echo "========== INVENTORY GRAPH =========="
+                        ansible-inventory --graph
+
+                        echo "========== ANSIBLE PING =========="
+                        ansible tag_kafka -m ping
+
+                        echo "========== SSH CONNECTIVITY =========="
+                        ansible tag_kafka -m shell -a '
+                        echo "========== HOSTNAME =========="
+                        hostname
+
+                        echo "========== IP ADDRESS =========="
+                        hostname -I
+
+                        echo "========== UPTIME =========="
+                        uptime
+                        '
+
+                        echo "========== DEPLOYING KAFKA =========="
+                        ansible-playbook playbooks/kafka.yml --diff
+
+                        echo "========== KAFKA BROKER VERIFICATION =========="
+                        ansible tag_kafka -m shell -a '
+                        echo "===== Broker ID ====="
+                        grep broker.id /opt/kafka/config/server.properties
+
+                        echo "===== Kafka Status ====="
+                        systemctl is-active kafka
+
+                        echo "===== Port ====="
+                        ss -lntp | grep 9092
+                        '
+
+                        echo "========== KAFKA VALIDATION =========="
+                        ansible tag_kafka -m shell -a '
+                        echo "===== HOST ====="
+                        hostname
+
+                        echo "===== Kafka Status ====="
+                        systemctl is-active kafka
+
+                        echo "===== Kafka Port ====="
+                        ss -lnt | grep :9092
+
+                        if systemctl list-unit-files | grep -q "^zookeeper.service"; then
+                            echo "===== ZooKeeper Status ====="
+                            systemctl is-active zookeeper
+
+                            echo "===== ZooKeeper Port ====="
+                            ss -lnt | grep :2181
+                        else
+                            echo "ZooKeeper not installed on this broker."
+                        fi
+                        '
                     '''
                 }
             }
         }
-
-        stage('Verify SSH Connectivity') {
-            steps {
-                dir("${ANSIBLE_DIR}") {
-                    sh '''
-                    echo "========== SSH CONNECTIVITY =========="
-
-                    ansible tag_kafka -m shell -a ' 
-                    echo "========== HOSTNAME =========="
-                    hostname
-
-                    echo "========== IP ADDRESS =========="
-                    hostname -I
-  
-                    echo "========== UPTIME =========="
-                    uptime
-                    '
-                    '''
-                }
-            }
-        }
-
-        stage('Verify Inventory') {
-            steps {
-                dir("${ANSIBLE_DIR}") {
-                    sh '''
-                    echo "========== INVENTORY FILE =========="
-                    cat inventories/aws_ec2.yml
-
-                    echo "========== ANSIBLE CFG =========="
-                    cat ansible.cfg
-
-                    echo "========== INVENTORY LIST =========="
-                    ansible-inventory --list
-
-                    echo "========== INVENTORY GRAPH =========="
-                    ansible-inventory --graph
-
-                    echo "========== ANSIBLE PING =========="
-                    ansible tag_kafka -m ping
-                    '''
-                }
-            }
-        }
-
-        stage('Deploy Kafka') {
-            steps {
-
-                dir("${ANSIBLE_DIR}") {
-
-                    sh '''
-                    echo "========== DEPLOYING KAFKA =========="
-                    ansible-playbook playbooks/kafka.yml --diff
-                    '''
-                }
-            }
-        }
-        
-        stage('Kafka Broker Verification') {
-            steps {
-
-                dir("${ANSIBLE_DIR}") {
-
-                    sh '''
-                    ansible tag_kafka -m shell -a '
-                    echo "===== Broker ID ====="
-                    grep broker.id /opt/kafka/config/server.properties 
-
-                    echo "===== Kafka Status ====="
-                    systemctl is-active kafka 
-
-                    echo "===== Port ====="
-                    ss -lntp | grep 9092 
-                    '
-                    '''
-                }
-            }
-        }
-
-        stage('Kafka Validation') {
-            steps {
-                dir("${ANSIBLE_DIR}") {
-                    sh '''
-                    ansible tag_kafka -m shell -a '
-                    echo "===== HOST ====="
-                    hostname
-
-                    echo "===== Kafka Status ====="
-                    systemctl is-active kafka
-
-                    echo "===== Kafka Port ====="
-                    ss -lnt | grep :9092
-
-                    if systemctl list-unit-files | grep -q "^zookeeper.service"; then
-                        echo "===== ZooKeeper Status ====="
-                        systemctl is-active zookeeper
-
-                        echo "===== ZooKeeper Port ====="
-                        ss -lnt | grep :2181
-                    else
-                        echo "ZooKeeper not installed on this broker."
-                    fi
-                    '
-                    '''
-                }
-            }
-        }
-                    
     }
 
     post {
-
         success {
-
             echo '========================================='
-            echo 'Terraform Infrastructure Created'
-            echo 'Dynamic Bastion Configured'
-            echo 'AWS Dynamic Inventory Loaded'
-            echo 'Kafka Cluster Successfully Deployed'
+            echo "Terraform ${params.ACTION} completed successfully"
+            if (params.ACTION == 'DEPLOY') {
+                echo 'Dynamic Bastion Configured'
+                echo 'AWS Dynamic Inventory Loaded'
+                echo 'Kafka Cluster Successfully Deployed'
+            } else {
+                echo 'Infrastructure Destroyed Successfully'
+            }
             echo '========================================='
         }
 
         failure {
-
             echo '========================================='
-            echo 'Pipeline Failed'
+            echo "Pipeline Failed during ${params.ACTION}"
             echo 'Check Terraform/Ansible Logs'
             echo '========================================='
         }
 
         always {
-               echo "Workspace cleanup disabled for debugging"
-               // cleanWs()
-            
+            echo "Workspace cleanup disabled for debugging"
+            // cleanWs()
         }
     }
 }
