@@ -160,13 +160,11 @@ keyed_groups:
     prefix: tag
 
 filters:
+  tag:Role: kafka
   instance-state-name: running
 
 compose:
   ansible_host: private_ip_address
-
-groups:
-  kafka: "'kafka' in tags.Role"
 
 strict: False
 EOF
@@ -218,7 +216,7 @@ EOF
                     ansible-inventory --graph
 
                     echo "========== ANSIBLE PING =========="
-                    ansible all -m ping
+                    ansible tag_kafka -m ping
                     '''
                 }
             }
