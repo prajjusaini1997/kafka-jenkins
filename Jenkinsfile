@@ -7,6 +7,20 @@ pipeline {
         disableConcurrentBuilds()
     }
 
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['DEPLOY', 'DESTROY'],
+            description: 'Select Terraform action'
+        )
+
+        booleanParam(
+            name: 'AUTO_APPROVE',
+            defaultValue: true,
+            description: 'Auto approve Terraform apply'
+        )
+    }
+
     environment {
         AWS_REGION      = 'us-east-1'
 
@@ -188,15 +202,20 @@ EOF
         }
 
         stage('Verify Inventory') {
-            steps {
+            dir('ansible') {
+                sh '''
+                echo "========== INVENTORY FILE =========="
+                cat inventories/aws_ec2.yml
 
-                dir("${ANSIBLE_DIR}") {
+                echo "========== ANSIBLE CFG =========="
+                cat ansible.cfg
 
-                    sh '''
-                    ansible-inventory --graph
-                    ansible all -m ping
-                    '''
-                }
+                echo "========== INVENTORY LIST =========="
+                ansible-inventory --list
+
+                echo "========== INVENTORY GRAPH =========="
+                ansible-inventory --graph
+                '''
             }
         }
 
