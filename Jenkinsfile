@@ -203,7 +203,7 @@ EOF
 
         stage('Verify Inventory') {
             steps {
-                dir("$(ANSIBLE DIR}") {
+                dir("${ANSIBLE_DIR}") {
                     sh '''
                     echo "========== INVENTORY FILE =========="
                     cat inventories/aws_ec2.yml
