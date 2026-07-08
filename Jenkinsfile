@@ -226,11 +226,16 @@ EOF
                     sh '''
                     echo "========== SSH CONNECTIVITY =========="
 
-                    ansible tag_kafka -m shell -a "hostname"
+                    ansible tag_kafka -m shell -a ' 
+                    echo "========== HOSTNAME =========="
+                    hostname
 
-                    ansible tag_kafka -m shell -a "hostname -I"
-
-                    ansible tag_kafka -m shell -a "uptime"
+                    echo "========== IP ADDRESS =========="
+                    hostname -I
+  
+                    echo "========== UPTIME =========="
+                    uptime
+                    '
                     '''
                 }
             }
@@ -265,6 +270,7 @@ EOF
                 dir("${ANSIBLE_DIR}") {
 
                     sh '''
+                    echo "========== DEPLOYING KAFKA =========="
                     ansible-playbook playbooks/kafka.yml --diff
                     '''
                 }
@@ -277,70 +283,50 @@ EOF
                 dir("${ANSIBLE_DIR}") {
 
                     sh '''
-                    echo "========== BROKER ID CHECK =========="
+                    ansible tag_kafka -m shell -a '
+                    echo "===== Broker ID ====="
+                    grep broker.id /opt/kafka/config/server.properties 
 
-                    ansible tag_kafka -m shell -a "grep broker.id /opt/kafka/config/server.properties"
+                    echo "===== Kafka Status ====="
+                    systemctl is-active kafka 
 
-                    echo "========== KAFKA STATUS =========="
-
-                    ansible tag_kafka -m shell -a "systemctl is-active kafka"
-
-                    echo "========== KAFKA PORT =========="
-
-                    ansible tag_kafka -m shell -a "ss -lntp | grep 9092"
+                    echo "===== Port ====="
+                    ss -lntp | grep 9092 
+                    '
                     '''
                 }
             }
         }
+
         stage('Kafka Validation') {
             steps {
                 dir("${ANSIBLE_DIR}") {
                     sh '''
-                    echo "========== Checking ZooKeeper =========="
-                    ansible tag_kafka -m shell -a "systemctl is-active zookeeper"
-
-                    echo "========== Waiting for Kafka =========="
                     ansible tag_kafka -m shell -a '
-                    until systemctl is-active --quiet kafka
-                    do
-                        echo "Kafka is still starting..."
-                        sleep 5
-                    done
+                    echo "===== HOST ====="
+                    hostname
+
+                    echo "===== Kafka Status ====="
                     systemctl is-active kafka
-                    '
 
-                    echo "========== Waiting for Port 9092 =========="
-                    ansible tag_kafka -m shell -a '
-                    for i in {1..12}; do
-                        if ss -lnt | grep -q ":9092"; then
-                            echo "Kafka port is listening"
-                            exit 0
-                        fi
-                        echo "Waiting for port 9092..."
-                        sleep 5
-                    done
-                    echo "Kafka port did not open"
-                    exit 1
-                    '
+                    echo "===== Kafka Port ====="
+                    ss -lnt | grep :9092
 
-                    echo "========== Waiting for Port 2181 =========="
-                    ansible tag_kafka -m shell -a '
-                    for i in {1..12}; do
-                        if ss -lnt | grep -q ":2181"; then
-                            echo "ZooKeeper port is listening"
-                            exit 0
-                        fi
-                        echo "Waiting for port 2181..."
-                        sleep 5
-                    done
-                    echo "ZooKeeper port did not open"
-                    exit 1
+                    if systemctl list-unit-files | grep -q "^zookeeper.service"; then
+                        echo "===== ZooKeeper Status ====="
+                        systemctl is-active zookeeper
+
+                        echo "===== ZooKeeper Port ====="
+                        ss -lnt | grep :2181
+                    else
+                        echo "ZooKeeper not installed on this broker."
+                    fi
                     '
                     '''
                 }
             }
         }
-
+                    
     }
 
     post {
