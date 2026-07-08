@@ -260,11 +260,23 @@ EOF
                 dir("${ANSIBLE_DIR}") {
 
                     sh '''
+                    echo "Checking ZooKeeper..."
                     ansible tag_kafka -m shell -a "systemctl is-active zookeeper"
-                    ansible tag_kafka -m shell -a "systemctl is-active kafka"
 
+                    echo "Waiting for Kafka to become active..."
+                    ansible tag_kafka -m shell -a '
+                    until systemctl is-active --quiet kafka
+                    do
+                        echo "Kafka is still starting..."
+                        sleep 5
+                    done
+                    systemctl is-active kafka
+                    '
+
+                    echo "Verifying Kafka Port..."
                     ansible tag_kafka -m shell -a "ss -lntp | grep 9092"
 
+                    echo "Verifying ZooKeeper Port..."
                     ansible tag_kafka -m shell -a "ss -lntp | grep 2181"
                     '''
                 }
