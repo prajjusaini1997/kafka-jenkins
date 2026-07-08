@@ -202,20 +202,25 @@ EOF
         }
 
         stage('Verify Inventory') {
-            dir('ansible') {
-                sh '''
-                echo "========== INVENTORY FILE =========="
-                cat inventories/aws_ec2.yml
+            steps {
+                dir("$(ANSIBLE DIR}") {
+                    sh '''
+                    echo "========== INVENTORY FILE =========="
+                    cat inventories/aws_ec2.yml
 
-                echo "========== ANSIBLE CFG =========="
-                cat ansible.cfg
+                    echo "========== ANSIBLE CFG =========="
+                    cat ansible.cfg
 
-                echo "========== INVENTORY LIST =========="
-                ansible-inventory --list
+                    echo "========== INVENTORY LIST =========="
+                    ansible-inventory --list
 
-                echo "========== INVENTORY GRAPH =========="
-                ansible-inventory --graph
-                '''
+                    echo "========== INVENTORY GRAPH =========="
+                    ansible-inventory --graph
+
+                    echo "========== ANSIBLE PING =========="
+                    ansible all -m ping
+                    '''
+                }
             }
         }
 
