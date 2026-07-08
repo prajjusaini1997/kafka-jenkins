@@ -256,14 +256,12 @@ EOF
 
         stage('Kafka Validation') {
             steps {
-
                 dir("${ANSIBLE_DIR}") {
-
                     sh '''
-                    echo "Checking ZooKeeper..."
+                    echo "========== Checking ZooKeeper =========="
                     ansible tag_kafka -m shell -a "systemctl is-active zookeeper"
 
-                    echo "Waiting for Kafka to become active..."
+                    echo "========== Waiting for Kafka =========="
                     ansible tag_kafka -m shell -a '
                     until systemctl is-active --quiet kafka
                     do
@@ -273,11 +271,33 @@ EOF
                     systemctl is-active kafka
                     '
 
-                    echo "Verifying Kafka Port..."
-                    ansible tag_kafka -m shell -a "ss -lntp | grep 9092"
+                    echo "========== Waiting for Port 9092 =========="
+                    ansible tag_kafka -m shell -a '
+                    for i in {1..12}; do
+                        if ss -lnt | grep -q ":9092"; then
+                            echo "Kafka port is listening"
+                            exit 0
+                        fi
+                        echo "Waiting for port 9092..."
+                        sleep 5
+                    done
+                    echo "Kafka port did not open"
+                    exit 1
+                    '
 
-                    echo "Verifying ZooKeeper Port..."
-                    ansible tag_kafka -m shell -a "ss -lntp | grep 2181"
+                    echo "========== Waiting for Port 2181 =========="
+                    ansible tag_kafka -m shell -a '
+                    for i in {1..12}; do
+                        if ss -lnt | grep -q ":2181"; then
+                            echo "ZooKeeper port is listening"
+                            exit 0
+                        fi
+                        echo "Waiting for port 2181..."
+                        sleep 5
+                    done
+                    echo "ZooKeeper port did not open"
+                    exit 1
+                    '
                     '''
                 }
             }
