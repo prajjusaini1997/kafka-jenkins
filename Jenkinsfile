@@ -124,7 +124,7 @@ Host bastion
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
 
-Host 172.31.*
+Host 10.0.*
     User ubuntu
     IdentityFile ${SSH_KEY}
     ProxyJump bastion
