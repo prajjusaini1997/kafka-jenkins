@@ -7,19 +7,19 @@ pipeline {
         BRANCH         = 'main'
     }
 
-        stages {
+    stages {
 
-            stage('Checkout Terraform') {
-                steps {
-                    dir('kafka-terraform') {
-                        git(
-                           branch: "${BRANCH}",
-                           credentialsId: "github-creds",
-                           url: "${TERRAFORM_REPO}"
-                        )
-                    }
-                 }
+        stage('Checkout Terraform') {
+            steps {
+                dir('kafka-terraform') {
+                    git(
+                        branch: "${BRANCH}",
+                        credentialsId: 'github-creds',
+                        url: "${TERRAFORM_REPO}"
+                    )
+                }
             }
+        }
 
         stage('Terraform Init') {
             steps {
@@ -35,13 +35,13 @@ pipeline {
                     sh 'terraform validate'
                 }
             }
-        } 
- 
+        }
+
         stage('Terraform Plan') {
             steps {
-               dir('kafka-terraform') {
-                   sh 'terraform plan'
-               }
+                dir('kafka-terraform') {
+                    sh 'terraform plan'
+                }
             }
         }
 
@@ -49,14 +49,14 @@ pipeline {
             steps {
                 dir('kafka-terraform') {
                     sh 'terraform apply -auto-approve'
-                } 
+                }
             }
         }
 
         stage('Wait for EC2') {
             steps {
                 sh '''
-                 echo "Waiting for EC2 instances to become ready..."
+                echo "Waiting for EC2..."
                 sleep 60
                 '''
             }
@@ -66,10 +66,27 @@ pipeline {
             steps {
                 dir('kafka-role') {
                     git(
-                       branch: "${BRANCH}",
-                       credentialsId: "github-creds",
-                       url: "${ANSIBLE_REPO}"
+                        branch: "${BRANCH}",
+                        credentialsId: 'github-creds',
+                        url: "${ANSIBLE_REPO}"
                     )
+                }
+            }
+        }
+
+        stage('Configure Bastion Proxy') {
+            steps {
+                dir('kafka-terraform') {
+                    sh '''
+                    BASTION_IP=$(terraform output -raw bastion_ip)
+
+                    echo "Using Bastion IP: $BASTION_IP"
+
+                    cat > ../kafka-role/ssh.cfg <<EOF
+Host *
+    ProxyJump ubuntu@$BASTION_IP
+EOF
+                    '''
                 }
             }
         }
@@ -78,7 +95,7 @@ pipeline {
             steps {
                 dir('kafka-role') {
                     sh '''
-                    ansible-inventory --graph
+                    ansible-inventory -i inventories/aws_ec2.yml --graph
                     '''
                 }
             }
@@ -88,9 +105,14 @@ pipeline {
             steps {
                 dir('kafka-role') {
                     sshagent(credentials: ['ec2-ssh-key']) {
-                    sh '''
-                    ansible all -m ping
-                    '''
+                        sh '''
+                        export ANSIBLE_SSH_ARGS="-F $(pwd)/ssh.cfg"
+
+                        ansible all \
+                        -i inventories/aws_ec2.yml \
+                        -u ubuntu \
+                        -m ping
+                        '''
                     }
                 }
             }
@@ -99,36 +121,49 @@ pipeline {
         stage('Deploy Kafka') {
             steps {
                 dir('kafka-role') {
-                    sh '''
-                    ansible-playbook playbooks/kafka.yml
-                    '''
+                    sshagent(credentials: ['ec2-ssh-key']) {
+                        sh '''
+                        export ANSIBLE_SSH_ARGS="-F $(pwd)/ssh.cfg"
+
+                        ansible-playbook \
+                        -i inventories/aws_ec2.yml \
+                        playbooks/kafka.yml
+                        '''
+                    }
                 }
             }
         }
 
         stage('Verify Kafka') {
-             steps {
-                 dir('kafka-role') {
-                     sh '''
-                     echo "Kafka verification started..."
+            steps {
+                dir('kafka-role') {
+                    sshagent(credentials: ['ec2-ssh-key']) {
+                        sh '''
+                        export ANSIBLE_SSH_ARGS="-F $(pwd)/ssh.cfg"
 
-                     ansible all -m shell -a "systemctl status kafka --no-pager"
-
-                     echo "Kafka verification completed"
-                     '''
-                 }
-             }
+                        ansible all \
+                        -i inventories/aws_ec2.yml \
+                        -u ubuntu \
+                        -m shell \
+                        -a "systemctl status kafka --no-pager"
+                        '''
+                    }
+                }
+            }
         }
-   }
+    }
 
-        post {
-
+    post {
         success {
-            echo 'Deployment Successful'
+            echo "Deployment Successful"
         }
 
         failure {
-            echo 'Deployment Failed'
+            echo "Deployment Failed"
+        }
+
+        always {
+            cleanWs()
         }
     }
 }
