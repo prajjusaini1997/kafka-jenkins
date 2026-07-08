@@ -199,6 +199,26 @@ EOF
             }
         }
 
+        stage('Wait for EC2 SSH') {
+            steps {
+
+                dir("${ANSIBLE_DIR}") {
+
+                    sh '''
+                    echo "Waiting for EC2 instances to become SSH ready..."
+
+                    until ansible tag_kafka -m ping >/dev/null 2>&1
+                    do
+                        echo "SSH not ready yet... retrying in 10 seconds"
+                        sleep 10
+                    done
+
+                    echo "All EC2 instances are SSH reachable."
+                    '''
+                }
+            }
+        }
+
         stage('Verify Inventory') {
             steps {
                 dir("${ANSIBLE_DIR}") {
@@ -228,7 +248,7 @@ EOF
                 dir("${ANSIBLE_DIR}") {
 
                     sh '''
-                    ansible-playbook playbooks/kafka.yml
+                    ansible-playbook playbooks/kafka.yml --diff
                     '''
                 }
             }
