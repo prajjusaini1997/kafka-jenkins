@@ -98,7 +98,7 @@ pipeline {
                 dir("${TF_DIR}") {
 
                     sh '''
-                    BASTION_IP=$(terraform output -raw bastion_public_ip)
+                    BASTION_IP=$(terraform output -raw bastion_ip)
 
                     mkdir -p ~/.ssh
 
