@@ -185,7 +185,8 @@ inventory=inventories/aws_ec2.yml
 host_key_checking=False
 remote_user=ubuntu
 private_key_file=${SSH_KEY}
-timeout=30
+timeout=60
+forks=1
 
 [inventory]
 enable_plugins=amazon.aws.aws_ec2
@@ -214,6 +215,22 @@ EOF
                     done
 
                     echo "All EC2 instances are SSH reachable."
+                    '''
+                }
+            }
+        }
+
+        stage('Verify SSH Connectivity') {
+            steps {
+                dir("${ANSIBLE_DIR}") {
+                    sh '''
+                    echo "========== SSH CONNECTIVITY =========="
+
+                    ansible tag_kafka -m shell -a "hostname"
+
+                    ansible tag_kafka -m shell -a "hostname -I"
+
+                    ansible tag_kafka -m shell -a "uptime"
                     '''
                 }
             }
