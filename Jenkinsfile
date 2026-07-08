@@ -253,7 +253,28 @@ EOF
                 }
             }
         }
+        
+        stage('Kafka Broker Verification') {
+            steps {
 
+                dir("${ANSIBLE_DIR}") {
+
+                    sh '''
+                    echo "========== BROKER ID CHECK =========="
+
+                    ansible tag_kafka -m shell -a "grep broker.id /opt/kafka/config/server.properties"
+
+                    echo "========== KAFKA STATUS =========="
+
+                    ansible tag_kafka -m shell -a "systemctl is-active kafka"
+
+                    echo "========== KAFKA PORT =========="
+
+                    ansible tag_kafka -m shell -a "ss -lntp | grep 9092"
+                    '''
+                }
+            }
+        }
         stage('Kafka Validation') {
             steps {
                 dir("${ANSIBLE_DIR}") {
