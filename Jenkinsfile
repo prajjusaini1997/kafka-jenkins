@@ -48,7 +48,7 @@ pipeline {
                     dir("${ANSIBLE_DIR}") {
                         git branch: "${BRANCH}", url: "${ANSIBLE_REPO}"
                     }
-                    withCredentials([file(credentialsId: 'ninja-key-pem', variable: 'PEM_FILE')]) {
+                    withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'PEM_FILE')]) {
                         sh '''
                             mkdir -p $(dirname "${SSH_KEY}")
                             cp "${PEM_FILE}" "${SSH_KEY}"
