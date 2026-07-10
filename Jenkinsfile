@@ -192,7 +192,13 @@ host_key_checking=False
 remote_user=ubuntu
 private_key_file=${SSH_KEY}
 timeout=60
-forks=1
+forks=5
+gathering=smart
+fact_caching=jsonfile
+fact_caching_connection=/tmp/ansible_facts_cache
+fact_caching_timeout=3600
+interpreter_python=/usr/bin/python3
+deprecation_warnings=False
 
 [inventory]
 enable_plugins=amazon.aws.aws_ec2
@@ -214,43 +220,17 @@ EOF
                 dir("${ANSIBLE_DIR}") {
                     sh '''
                         echo "Waiting for EC2 instances to become SSH ready..."
-                        until ansible tag_kafka -m ping >/dev/null 2>&1
-                        do
+                        until ansible tag_kafka -m ping >/dev/null 2>&1; do
                             echo "SSH not ready yet... retrying in 10 seconds"
                             sleep 10
                         done
 
-                        echo "========== INVENTORY FILE =========="
-                        cat inventories/aws_ec2.yml
-
-                        echo "========== ANSIBLE CFG =========="
-                        cat ansible.cfg
-
-                        echo "========== INVENTORY LIST =========="
-                        ansible-inventory --list
-
-                        echo "========== INVENTORY GRAPH =========="
-                        ansible-inventory --graph
-
-                        echo "========== ANSIBLE PING =========="
-                        ansible tag_kafka -m ping
-
-                        echo "========== SSH CONNECTIVITY =========="
-                        ansible tag_kafka -m shell -a 'hostname && hostname -I && uptime'
-
                         echo "========== DEPLOYING KAFKA =========="
-                        ansible-playbook playbooks/kafka.yml --diff
-
-                        echo "========== KAFKA BROKER VERIFICATION =========="
-                        ansible tag_kafka -m shell -a '
-                        grep broker.id /opt/kafka/config/server.properties
-                        systemctl is-active kafka
-                        ss -lntp | grep 9092
-                        '
+                        ansible-playbook playbooks/kafka.yml
 
                         echo "========== KAFKA VALIDATION =========="
                         ansible tag_kafka -m shell -a '
-                        hostname
+                        grep broker.id /opt/kafka/config/server.properties
                         systemctl is-active kafka
                         ss -lnt | grep :9092
                         if systemctl list-unit-files | grep -q "^zookeeper.service"; then
