@@ -24,7 +24,7 @@ pipeline {
     environment {
         AWS_REGION     = 'us-east-1'
         TERRAFORM_REPO = 'https://github.com/prajjusaini1997/kafka-terraform.git'
-        ANSIBLE_REPO   = 'https://github.com/prajjusaini1997/kafka-role.git'
+        ANSIBLE_REPO   = 'https://github.com/prajjusaini1997/Kafka-role.git'
         BRANCH         = 'main'
         TF_DIR         = 'terraform'
         ANSIBLE_DIR    = 'ansible'
@@ -48,11 +48,13 @@ pipeline {
                     dir("${ANSIBLE_DIR}") {
                         git branch: "${BRANCH}", url: "${ANSIBLE_REPO}"
                     }
-                    sh '''
-                        mkdir -p $(dirname "${SSH_KEY}")
-                        cp "${ANSIBLE_DIR}/ninja_key.pem" "${SSH_KEY}"
-                        chmod 600 "${SSH_KEY}"
-                    '''
+                    withCredentials([file(credentialsId: 'ninja-key-pem', variable: 'PEM_FILE')]) {
+                        sh '''
+                            mkdir -p $(dirname "${SSH_KEY}")
+                            cp "${PEM_FILE}" "${SSH_KEY}"
+                            chmod 600 "${SSH_KEY}"
+                        '''
+                    }
                 }
             }
         }
@@ -60,9 +62,7 @@ pipeline {
         stage('3. Terraform Init') {
             steps {
                 dir("${TF_DIR}") {
-                    sh '''
-                        terraform init -upgrade
-                    '''
+                    sh 'terraform init -upgrade'
                 }
             }
         }
@@ -70,9 +70,7 @@ pipeline {
         stage('4. Terraform Validate') {
             steps {
                 dir("${TF_DIR}") {
-                    sh '''
-                        terraform validate
-                    '''
+                    sh 'terraform validate'
                 }
             }
         }
@@ -200,7 +198,7 @@ forks=1
 enable_plugins=amazon.aws.aws_ec2
 
 [ssh_connection]
-ssh_args=-F /var/lib/jenkins/.ssh/config
+ssh_args=-F ~/.ssh/config
 pipelining=True
 EOF
                     '''
@@ -238,48 +236,25 @@ EOF
                         ansible tag_kafka -m ping
 
                         echo "========== SSH CONNECTIVITY =========="
-                        ansible tag_kafka -m shell -a '
-                        echo "========== HOSTNAME =========="
-                        hostname
-
-                        echo "========== IP ADDRESS =========="
-                        hostname -I
-
-                        echo "========== UPTIME =========="
-                        uptime
-                        '
+                        ansible tag_kafka -m shell -a 'hostname && hostname -I && uptime'
 
                         echo "========== DEPLOYING KAFKA =========="
                         ansible-playbook playbooks/kafka.yml --diff
 
                         echo "========== KAFKA BROKER VERIFICATION =========="
                         ansible tag_kafka -m shell -a '
-                        echo "===== Broker ID ====="
                         grep broker.id /opt/kafka/config/server.properties
-
-                        echo "===== Kafka Status ====="
                         systemctl is-active kafka
-
-                        echo "===== Port ====="
                         ss -lntp | grep 9092
                         '
 
                         echo "========== KAFKA VALIDATION =========="
                         ansible tag_kafka -m shell -a '
-                        echo "===== HOST ====="
                         hostname
-
-                        echo "===== Kafka Status ====="
                         systemctl is-active kafka
-
-                        echo "===== Kafka Port ====="
                         ss -lnt | grep :9092
-
                         if systemctl list-unit-files | grep -q "^zookeeper.service"; then
-                            echo "===== ZooKeeper Status ====="
                             systemctl is-active zookeeper
-
-                            echo "===== ZooKeeper Port ====="
                             ss -lnt | grep :2181
                         else
                             echo "ZooKeeper not installed on this broker."
