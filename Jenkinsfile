@@ -33,15 +33,17 @@ pipeline {
 
     stages {
 
-        stage('1. Clean Workspace') {
+        stage('Clean Workspace') {
             steps {
+                script { currentBuild.description = "🧹 Cleaning workspace..." }
                 deleteDir()
             }
         }
 
-        stage('2. Clone Repos') {
+        stage('Clone Repos') {
             steps {
                 script {
+                    currentBuild.description = "📥 Cloning repositories..."
                     dir("${TF_DIR}") {
                         git branch: "${BRANCH}", url: "${TERRAFORM_REPO}"
                     }
@@ -59,24 +61,27 @@ pipeline {
             }
         }
 
-        stage('3. Terraform Init') {
+        stage('Terraform Init') {
             steps {
+                script { currentBuild.description = "🔧 Terraform Init..." }
                 dir("${TF_DIR}") {
                     sh 'terraform init -upgrade'
                 }
             }
         }
 
-        stage('4. Terraform Validate') {
+        stage('Terraform Validate') {
             steps {
+                script { currentBuild.description = "✅ Terraform Validate..." }
                 dir("${TF_DIR}") {
                     sh 'terraform validate'
                 }
             }
         }
 
-        stage('5. Terraform Plan') {
+        stage('Terraform Plan') {
             steps {
+                script { currentBuild.description = "📝 Terraform Plan (${params.ACTION})..." }
                 dir("${TF_DIR}") {
                     sh '''
                         if [ "$ACTION" = "DESTROY" ]; then
@@ -89,7 +94,7 @@ pipeline {
             }
         }
 
-        stage('6. Approval') {
+        stage('Approval') {
             when {
                 expression { return params.AUTO_APPROVE == false }
             }
@@ -98,8 +103,9 @@ pipeline {
             }
         }
 
-        stage('7. Terraform Apply or Destroy') {
+        stage('Terraform Apply or Destroy') {
             steps {
+                script { currentBuild.description = "🚀 Terraform ${params.ACTION} in progress..." }
                 dir("${TF_DIR}") {
                     sh '''
                         if [ "$ACTION" = "DESTROY" ]; then
@@ -120,11 +126,12 @@ pipeline {
             }
         }
 
-        stage('8. Generate Bastion SSH Config') {
+        stage('Generate Bastion SSH Config') {
             when {
                 expression { return params.ACTION == 'DEPLOY' }
             }
             steps {
+                script { currentBuild.description = "🔑 Configuring Bastion SSH..." }
                 dir("${TF_DIR}") {
                     sh '''
                         BASTION_IP=$(terraform output -raw bastion_ip)
@@ -153,11 +160,12 @@ EOF
             }
         }
 
-        stage('9. Configure Ansible') {
+        stage('Configure Ansible') {
             when {
                 expression { return params.ACTION == 'DEPLOY' }
             }
             steps {
+                script { currentBuild.description = "⚙️ Configuring Ansible inventory..." }
                 dir("${ANSIBLE_DIR}") {
                     sh '''
                         mkdir -p inventories
@@ -212,11 +220,12 @@ EOF
             }
         }
 
-        stage('10. Kafka Deploy and Verify') {
+        stage('Kafka Deploy and Verify') {
             when {
                 expression { return params.ACTION == 'DEPLOY' }
             }
             steps {
+                script { currentBuild.description = "📦 Deploying Kafka cluster..." }
                 dir("${ANSIBLE_DIR}") {
                     sh '''
                         echo "Waiting for EC2 instances to become SSH ready..."
@@ -249,6 +258,7 @@ EOF
     post {
         success {
             script {
+                currentBuild.description = params.ACTION == 'DEPLOY' ? "✅ Kafka Cluster Deployed Successfully" : "✅ Infrastructure Destroyed Successfully"
                 echo '========================================='
                 echo "Terraform ${params.ACTION} completed successfully"
                 if (params.ACTION == 'DEPLOY') {
@@ -263,6 +273,9 @@ EOF
         }
 
         failure {
+            script {
+                currentBuild.description = "❌ Pipeline Failed during ${params.ACTION}"
+            }
             echo '========================================='
             echo "Pipeline Failed during ${params.ACTION}"
             echo 'Check Terraform/Ansible Logs'
