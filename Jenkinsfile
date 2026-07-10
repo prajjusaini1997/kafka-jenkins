@@ -198,7 +198,7 @@ forks=1
 enable_plugins=amazon.aws.aws_ec2
 
 [ssh_connection]
-ssh_args=-F ~/.ssh/config
+ssh_args=-F /var/lib/jenkins/.ssh/config
 pipelining=True
 EOF
                     '''
