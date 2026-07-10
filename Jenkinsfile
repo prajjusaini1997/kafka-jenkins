@@ -48,6 +48,11 @@ pipeline {
                     dir("${ANSIBLE_DIR}") {
                         git branch: "${BRANCH}", url: "${ANSIBLE_REPO}"
                     }
+                    sh '''
+                        mkdir -p $(dirname "${SSH_KEY}")
+                        cp "${ANSIBLE_DIR}/ninja_key.pem" "${SSH_KEY}"
+                        chmod 600 "${SSH_KEY}"
+                    '''
                 }
             }
         }
